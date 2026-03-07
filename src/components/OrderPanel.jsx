@@ -1,4 +1,6 @@
-import React, { useState } from 'react'
+import React, { useState } from 'react'git add .
+git commit -m "ready for deployment"
+git push
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useWalletModal } from '@solana/wallet-adapter-react-ui'
 import { usePrivPerps } from '../hooks/usePrivPerps.js'
