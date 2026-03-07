@@ -1,0 +1,58 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #04050a;
+    --surface:  #0b0d17;
+      --surface2: #111426;
+        --border:   #1e2240;
+          --accent:   #5b4fff;
+            --accent2:  #00e5c0;
+              --red:      #ff4f7b;
+                --green:    #00e5a0;
+                  --text:     #e8eaf6;
+                    --muted:    #6b7094;
+                      --font-display: 'Syne', sans-serif;
+                        --font-mono:    'Space Mono', monospace;
+                        }
+
+                        html, body, #root {
+                          height: 100%;
+                            background: var(--bg);
+                              color: var(--text);
+                                font-family: var(--font-mono);
+                                  overflow-x: hidden;
+                                  }
+
+                                  ::-webkit-scrollbar { width: 4px; height: 4px; }
+                                  ::-webkit-scrollbar-track { background: var(--bg); }
+                                  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+                                  .wallet-adapter-button {
+                                    font-family: var(--font-mono) !important;
+                                      font-size: 12px !important;
+                                        background: var(--accent) !important;
+                                          border-radius: 4px !important;
+                                            height: 36px !important;
+                                              padding: 0 16px !important;
+                                                letter-spacing: 1px !important;
+                                                }
+
+                                                .wallet-adapter-modal-wrapper {
+                                                  background: var(--surface2) !important;
+                                                    border: 1px solid var(--border) !important;
+                                                      font-family: var(--font-mono) !important;
+                                                      }
+
+                                                      @keyframes fadeUp {
+                                                        from { opacity: 0; transform: translateY(12px); }
+                                                          to   { opacity: 1; transform: translateY(0); }
+                                                          }
+
+                                                          @keyframes pulse {
+                                                            0%, 100% { opacity: 1; }
+                                                              50%       { opacity: 0.4; }
+                                                              }
+
+                                                              @keyframes spin {
+                                                                to { transform: rotate(360deg); }
+                                                                }
