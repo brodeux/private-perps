@@ -1,12 +1,10 @@
 import React, { useState } from 'react'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useWalletModal } from '@solana/wallet-adapter-react-ui'
-import { usePrivPerps } from '../hooks/usePrivPerps.js'
 
-export function OrderPanel({ market }) {
+export function OrderPanel({ market, openPosition, loading, txSig, error }) {
   const { publicKey } = useWallet()
   const { setVisible } = useWalletModal()
-  const { openPosition, loading, txSig, error } = usePrivPerps()
 
   const [side, setSide] = useState('long')
   const [collateral, setCollateral] = useState('')

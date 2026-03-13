@@ -4,6 +4,7 @@ import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import { PriceChart }     from './components/PriceChart.jsx'
 import { OrderPanel }     from './components/OrderPanel.jsx'
 import { PositionsTable } from './components/PositionsTable.jsx'
+import { usePrivPerps }   from './hooks/usePrivPerps.js'
 
 const MARKETS = ['SOL-PERP', 'BTC-PERP', 'ETH-PERP']
 
@@ -15,6 +16,7 @@ export function App() {
   const [dropOpen, setDropOpen]       = useState(false)
   const [mobilePanel, setMobilePanel] = useState('chart')
   const dropRef = useRef(null)
+  const perps = usePrivPerps()
 
   const shortKey = publicKey
     ? publicKey.toBase58().slice(0, 4) + '…' + publicKey.toBase58().slice(-4)
@@ -130,10 +132,10 @@ export function App() {
       <div className="main-area" style={styles.main}>
         <div style={{ ...styles.left, display: mobilePanel === 'order' ? 'none' : 'flex' }}>
           <PriceChart market={market} />
-          <PositionsTable />
+          <PositionsTable positions={perps.positions} closePosition={perps.closePosition} loading={perps.loading} />
         </div>
         <div style={{ display: mobilePanel === 'chart' ? 'none' : 'block', overflow: 'auto' }}>
-          <OrderPanel market={market} />
+          <OrderPanel market={market} openPosition={perps.openPosition} loading={perps.loading} txSig={perps.txSig} error={perps.error} />
         </div>
       </div>
 
