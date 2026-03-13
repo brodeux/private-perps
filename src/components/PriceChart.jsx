@@ -1,9 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-const COINGECKO_IDS = {
-  'SOL-PERP': 'solana',
-  'BTC-PERP': 'bitcoin',
-  'ETH-PERP': 'ethereum',
+const COIN_MAP = {
+  'SOL-PERP': { ws: 'solusdt', gecko: 'solana', label: 'SOL' },
+  'BTC-PERP': { ws: 'btcusdt', gecko: 'bitcoin', label: 'BTC' },
+  'ETH-PERP': { ws: 'ethusdt', gecko: 'ethereum', label: 'ETH' },
 }
 
 function generateWalk(points = 80, start = 100, vol = 0.8) {
@@ -18,65 +18,112 @@ function generateWalk(points = 80, start = 100, vol = 0.8) {
 
 export function PriceChart({ market }) {
   const canvasRef = useRef(null)
-  const dataRef = useRef(null)
-  const [price, setPrice] = useState(null)
-  const [change, setChange] = useState('0.00')
-  const [loading, setLoading] = useState(true)
+  const dataRef   = useRef(null)
+  const wsRef     = useRef(null)
+  const animRef   = useRef(null)
 
+  const [livePrice, setLivePrice]   = useState(null)
+  const [change24h, setChange24h]   = useState(null)
+  const [stats, setStats]           = useState({ vol: '$842.3M', oi: '$213.7M', funding: '+0.0012%' })
+  const [connected, setConnected]   = useState(false)
+
+  const coin = COIN_MAP[market] || COIN_MAP['SOL-PERP']
+
+  // Fetch 24h stats from CoinGecko once on market change
   useEffect(() => {
-    const coinId = COINGECKO_IDS[market] || 'solana'
-    const fetchPrice = async () => {
+    dataRef.current = null
+    setLivePrice(null)
+    setChange24h(null)
+    setConnected(false)
+
+    const fetchStats = async () => {
       try {
         const res = await fetch(
-          `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd&include_24hr_change=true`
+          `https://api.coingecko.com/api/v3/simple/price?ids=${coin.gecko}&vs_currencies=usd&include_24hr_change=true`
         )
         const data = await res.json()
-        const livePrice = data[coinId]?.usd
-        const liveChange = data[coinId]?.usd_24h_change?.toFixed(2)
-        if (livePrice) {
+        const price = data[coin.gecko]?.usd
+        const chg   = data[coin.gecko]?.usd_24h_change?.toFixed(2)
+        if (price) {
+          setLivePrice(price)
+          setChange24h(chg)
           if (!dataRef.current) {
-            dataRef.current = generateWalk(80, livePrice, livePrice * 0.002)
-          } else {
-            dataRef.current = [...dataRef.current.slice(1), livePrice]
+            dataRef.current = generateWalk(80, price, price * 0.002)
           }
-          setPrice(livePrice)
-          setChange(liveChange ?? '0.00')
-          setLoading(false)
         }
-      } catch (err) {
-        if (!dataRef.current) {
-          dataRef.current = generateWalk(80, 100, 0.8)
-          setPrice(dataRef.current.at(-1))
-          setChange('0.00')
-          setLoading(false)
-        }
-      }
+      } catch (e) {}
     }
-    fetchPrice()
-    const id = setInterval(fetchPrice, 30000)
-    return () => clearInterval(id)
+    fetchStats()
   }, [market])
 
+  // Binance WebSocket for real-time price ticks
   useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas || !dataRef.current) return
+    if (wsRef.current) {
+      wsRef.current.close()
+      wsRef.current = null
+    }
+
+    const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${coin.ws}@trade`)
+    wsRef.current = ws
+
+    ws.onopen = () => setConnected(true)
+    ws.onclose = () => setConnected(false)
+    ws.onerror = () => setConnected(false)
+
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data)
+        const price = parseFloat(msg.p)
+        if (!price) return
+        setLivePrice(price)
+        if (!dataRef.current) {
+          dataRef.current = generateWalk(80, price, price * 0.002)
+        } else {
+          dataRef.current = [...dataRef.current.slice(1), price]
+        }
+      } catch (err) {}
+    }
+
+    return () => {
+      ws.close()
+      wsRef.current = null
+      setConnected(false)
+    }
+  }, [market])
+
+  // Canvas draw loop
+  useEffect(() => {
     const draw = () => {
+      const canvas = canvasRef.current
+      if (!canvas) return
       const ctx = canvas.getContext('2d')
       const W = canvas.offsetWidth
       const H = canvas.offsetHeight
       canvas.width = W
       canvas.height = H
+
       const data = dataRef.current
+      if (!data || data.length < 2) {
+        animRef.current = requestAnimationFrame(draw)
+        return
+      }
+
+      ctx.clearRect(0, 0, W, H)
+
       const min = Math.min(...data) - 0.5
       const max = Math.max(...data) + 0.5
       const xStep = W / (data.length - 1)
       const toY = v => H - ((v - min) / (max - min)) * H * 0.85 - H * 0.05
+
+      // Grid lines
       ctx.strokeStyle = 'rgba(30,34,64,0.6)'
       ctx.lineWidth = 1
       for (let i = 0; i <= 4; i++) {
         const y = (H / 4) * i
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke()
       }
+
+      // Fill gradient
       const grad = ctx.createLinearGradient(0, 0, 0, H)
       grad.addColorStop(0, 'rgba(91,79,255,0.25)')
       grad.addColorStop(0.6, 'rgba(91,79,255,0.05)')
@@ -89,6 +136,8 @@ export function PriceChart({ market }) {
       ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath()
       ctx.fillStyle = grad
       ctx.fill()
+
+      // Line
       ctx.beginPath()
       ctx.strokeStyle = '#5b4fff'
       ctx.lineWidth = 2
@@ -98,80 +147,83 @@ export function PriceChart({ market }) {
         else ctx.lineTo(i * xStep, toY(v))
       })
       ctx.stroke()
+
+      // Last price dot
       const lastX = (data.length - 1) * xStep
-      const lastY = toY(data.at(-1))
+      const lastY = toY(data[data.length - 1])
       ctx.beginPath()
       ctx.arc(lastX, lastY, 4, 0, Math.PI * 2)
       ctx.fillStyle = '#5b4fff'
       ctx.fill()
       ctx.beginPath()
-      ctx.arc(lastX, lastY, 8, 0, Math.PI * 2)
-      ctx.fillStyle = 'rgba(91,79,255,0.2)'
+      ctx.arc(lastX, lastY, 7, 0, Math.PI * 2)
+      ctx.fillStyle = 'rgba(91,79,255,0.3)'
       ctx.fill()
-    }
-    draw()
-    const ro = new ResizeObserver(draw)
-    ro.observe(canvas)
-    return () => ro.disconnect()
-  }, [price])
 
-  const isUp = parseFloat(change) >= 0
-  const formatPrice = (p) => {
-    if (!p) return '...'
-    if (p > 1000) return p.toLocaleString('en-US', { maximumFractionDigits: 2 })
-    return p.toFixed(2)
-  }
+      animRef.current = requestAnimationFrame(draw)
+    }
+
+    animRef.current = requestAnimationFrame(draw)
+    return () => cancelAnimationFrame(animRef.current)
+  }, [])
+
+  const isUp = parseFloat(change24h) >= 0
+  const fmt = (n) => n == null ? '—' : Number(n) >= 1000
+    ? '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 })
+    : '$' + Number(n).toFixed(2)
 
   return (
-    <div style={styles.wrap}>
-      <div style={styles.header}>
-        <div style={styles.pairRow}>
-          <span style={styles.pair}>{market}</span>
-          <span style={{ ...styles.livePrice, color: isUp ? 'var(--green)' : 'var(--red)' }}>
-            {loading ? '...' : `$${formatPrice(price)}`}
-          </span>
-          <span style={{
-            ...styles.chip,
-            background: isUp ? 'rgba(0,229,160,0.1)' : 'rgba(255,79,123,0.1)',
-            color: isUp ? 'var(--green)' : 'var(--red)',
-          }}>
-            {isUp ? '+' : ''}{change}%
+    <div style={s.wrap}>
+      <div style={s.header}>
+        <div style={s.pairRow}>
+          <span style={s.pair}>{market}</span>
+          <span style={s.livePrice}>{fmt(livePrice)}</span>
+          {change24h != null && (
+            <span style={{ ...s.chip, background: isUp ? 'rgba(0,229,192,0.1)' : 'rgba(255,80,80,0.1)',
+              color: isUp ? 'var(--accent2)' : '#ff5050' }}>
+              {isUp ? '+' : ''}{change24h}%
+            </span>
+          )}
+          <span style={{ ...s.chip, background: connected ? 'rgba(0,229,192,0.1)' : 'rgba(255,200,0,0.1)',
+            color: connected ? 'var(--accent2)' : '#ffc800', marginLeft: 4 }}>
+            {connected ? '⬤ LIVE' : '◯ CONNECTING'}
           </span>
         </div>
-        <div style={styles.stats}>
-          {[
-            ['24H VOL', '$842.3M'],
-            ['OPEN INT', '$213.7M'],
-            ['FUNDING', '+0.0012%'],
-            ['INDEX', loading ? '...' : `$${formatPrice(price)}`],
-          ].map(([label, val]) => (
-            <div key={label} style={styles.stat}>
-              <span style={styles.statLabel}>{label}</span>
-              <span style={styles.statVal}>{val}</span>
+        <div style={s.stats}>
+          {[['24H VOL', stats.vol], ['OPEN INT', stats.oi], ['FUNDING', stats.funding],
+            ['INDEX', fmt(livePrice)]].map(([label, val]) => (
+            <div style={s.stat} key={label}>
+              <span style={s.statLabel}>{label}</span>
+              <span style={s.statVal}>{val}</span>
             </div>
           ))}
-          <div style={styles.privacyPill}>
-            <span style={styles.dot} />
+          <div style={s.privacyPill}>
+            <span style={{ width: 7, height: 7, background: 'var(--accent2)', borderRadius: '50%',
+              display: 'inline-block', animation: 'pulse 2s infinite' }} />
             MPC ACTIVE
           </div>
         </div>
       </div>
-      <canvas ref={canvasRef} style={styles.canvas} />
+      <canvas ref={canvasRef} style={s.canvas} />
     </div>
   )
 }
 
-const styles = {
-  wrap: { display: 'flex', flexDirection: 'column', background: 'var(--surface)', flex: 1 },
-  header: { padding: '14px 20px', borderBottom: '1px solid var(--border)' },
-  pairRow: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 },
-  pair: { fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 20 },
-  livePrice: { fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700 },
-  chip: { fontSize: 11, padding: '3px 8px', borderRadius: 3 },
-  stats: { display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap' },
-  stat: { display: 'flex', flexDirection: 'column', gap: 2 },
-  statLabel: { fontSize: 9, color: 'var(--muted)', letterSpacing: '1.5px' },
-  statVal: { fontSize: 12 },
-  privacyPill: { marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 7,
+const s = {
+  wrap:       { display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minHeight: 0 },
+  header:     { padding: '12px 20px', borderBottom: '1px solid var(--border)', flexShrink: 0 },
+  pairRow:    { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 },
+  pair:       { fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 20 },
+  livePrice:  { fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700 },
+  chip:       { fontSize: 11, padding: '3px 8px', borderRadius: 3 },
+  stats:      { display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap' },
+  stat:       { display: 'flex', flexDirection: 'column', gap: 2 },
+  statLabel:  { fontSize: 9, color: 'var(--muted)', letterSpacing: '1.5px' },
+  statVal:    { fontSize: 12 },
+  privacyPill:{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 7,
     background: 'rgba(91,79,255,0.1)', border: '1px solid rgba(91,79,255,0.3)',
-    padding: '5px 12px', borderRadius: 20, fontSize: 11, color: 'var(--a
+    padding: '5px 12px', borderRadius: 20, fontSize: 11, color: 'var(--accent)' },
+  canvas:     { flex: 1, width: '100%', display: 'block', minHeight: 0 },
+}
+
+export default PriceChart
